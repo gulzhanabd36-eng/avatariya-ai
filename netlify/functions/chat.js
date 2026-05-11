@@ -1,5 +1,3 @@
-const fetch = require('node-fetch');
-
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -26,9 +24,10 @@ exports.handler = async (event) => {
       body: JSON.stringify({ model: 'text-embedding-3-small', input: message })
     });
     const embData = await embRes.json();
+    if (!embData.data || !embData.data[0]) throw new Error('Embedding failed: ' + JSON.stringify(embData));
     const queryEmb = embData.data[0].embedding;
 
-    // 2. Все чанки по роли
+    // 2. Все чанки по роли из Supabase
     const sbRes = await fetch(
       `${SUPABASE_URL}/rest/v1/knowledge_base?or=(role.eq.${role},role.eq.all)&select=id,content,source_file,category,keywords,embedding&limit=300`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
@@ -51,7 +50,7 @@ exports.handler = async (event) => {
       return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
-    // 4. Ранжирование: векторное + keyword
+    // 4. Векторное + keyword ранжирование
     const words = message.toLowerCase().split(/[\s,\.!?;:()\/\-]+/).filter(w => w.length > 2);
 
     const scored = chunks
@@ -70,12 +69,16 @@ exports.handler = async (event) => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
-    // 5. Контекст
+    if (scored.length === 0) {
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: 'По вашему вопросу ничего не найдено в базе знаний.', sources: [] }) };
+    }
+
+    // 5. Контекст для GPT-4o
     const context = scored
       .map((c, i) => `[${i + 1}. ${c.source_file}]\n${c.content}`)
       .join('\n\n───\n\n');
 
-    // 6. GPT-4o
+    // 6. GPT-4o ответ
     const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
