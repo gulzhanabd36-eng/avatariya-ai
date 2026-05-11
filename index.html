@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatariya — AI Ассистент</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --primary: #7C3AED;
+      --primary-light: #A78BFA;
+      --accent: #F43F5E;
+      --bg: #F5F3FF;
+      --white: #FFFFFF;
+      --text: #1E1B4B;
+      --text-light: #6B7280;
+      --border: #E5E7EB;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); min-height: 100vh; color: var(--text); }
+
+    /* ROLE SCREEN */
+    #role-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+    .logo { font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, var(--primary), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+    .subtitle { color: var(--text-light); font-size: 1rem; margin-bottom: 40px; text-align: center; }
+    .roles-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; }
+    .roles-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; width: 100%; max-width: 420px; }
+    .role-card { background: var(--white); border: 2px solid var(--border); border-radius: 16px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s; }
+    .role-card:hover { border-color: var(--primary); transform: translateY(-3px); box-shadow: 0 10px 30px rgba(124,58,237,0.15); }
+    .role-card .icon { font-size: 2.2rem; margin-bottom: 10px; }
+    .role-card .name { font-weight: 700; font-size: 1rem; }
+    .role-card.full { grid-column: 1 / -1; }
+
+    /* CHAT SCREEN */
+    #chat-screen { display: none; flex-direction: column; height: 100vh; max-width: 800px; margin: 0 auto; }
+    .chat-header { background: linear-gradient(135deg, #7C3AED, #6D28D9); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+    .chat-header .left { display: flex; align-items: center; gap: 12px; }
+    .header-avatar { width: 42px; height: 42px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+    .header-info h3 { font-size: 1rem; font-weight: 700; }
+    .header-info p { font-size: 0.78rem; opacity: 0.75; }
+    .change-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 7px 16px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; transition: background 0.2s; }
+    .change-btn:hover { background: rgba(255,255,255,0.35); }
+
+    /* MESSAGES */
+    .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .welcome { text-align: center; padding: 40px 20px; color: var(--text-light); }
+    .welcome .big-icon { font-size: 3.5rem; margin-bottom: 16px; }
+    .welcome h3 { font-size: 1.2rem; color: var(--text); font-weight: 700; margin-bottom: 8px; }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; }
+    .chip { background: var(--white); border: 1.5px solid var(--primary-light); color: var(--primary); padding: 8px 16px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; transition: all 0.2s; }
+    .chip:hover { background: var(--primary); color: white; border-color: var(--primary); }
+
+    .msg-wrap { display: flex; flex-direction: column; }
+    .message { display: flex; gap: 10px; max-width: 88%; }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.bot { align-self: flex-start; }
+    .msg-av { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .message.user .msg-av { background: var(--primary); }
+    .message.bot .msg-av { background: #F3F0FF; border: 1px solid var(--border); }
+    .msg-bubble { padding: 12px 16px; border-radius: 16px; font-size: 0.9rem; line-height: 1.6; }
+    .message.user .msg-bubble { background: var(--primary); color: white; border-bottom-right-radius: 4px; }
+    .message.bot .msg-bubble { background: var(--white); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+
+    /* Markdown in bot bubble */
+    .msg-bubble img { max-width: 100%; border-radius: 10px; margin: 10px 0; display: block; }
+    .msg-bubble ul, .msg-bubble ol { padding-left: 20px; margin: 8px 0; }
+    .msg-bubble li { margin: 5px 0; }
+    .msg-bubble strong { font-weight: 700; }
+    .msg-bubble h2, .msg-bubble h3 { margin: 14px 0 6px; color: var(--primary); }
+    .msg-bubble p { margin: 6px 0; }
+    .msg-bubble details { background: var(--bg); border-radius: 10px; padding: 10px 14px; margin: 10px 0; border: 1px solid var(--border); }
+    .msg-bubble summary { cursor: pointer; font-weight: 600; color: var(--primary); user-select: none; }
+    .msg-bubble table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.85rem; }
+    .msg-bubble th, .msg-bubble td { padding: 8px 12px; border: 1px solid var(--border); }
+    .msg-bubble th { background: var(--bg); font-weight: 700; }
+    .msg-bubble hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+    .msg-bubble code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+
+    .sources { font-size: 0.75rem; color: var(--text-light); margin-top: 6px; padding-left: 44px; }
+    .src-tag { display: inline-block; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; margin: 2px 3px 2px 0; }
+
+    /* Loading */
+    .loading-dots { display: flex; gap: 5px; padding: 4px 0; }
+    .loading-dots span { width: 8px; height: 8px; background: var(--primary-light); border-radius: 50%; animation: bounce 1.2s infinite; }
+    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-7px); } }
+
+    /* INPUT */
+    .input-area { padding: 16px 20px; background: var(--white); border-top: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-end; }
+    textarea { flex: 1; border: 1.5px solid var(--border); border-radius: 14px; padding: 11px 16px; font-size: 0.9rem; resize: none; min-height: 46px; max-height: 120px; outline: none; font-family: inherit; transition: border-color 0.2s; background: var(--bg); }
+    textarea:focus { border-color: var(--primary); background: white; }
+    textarea::placeholder { color: var(--text-light); }
+    .send-btn { width: 46px; height: 46px; background: var(--primary); border: none; border-radius: 14px; color: white; font-size: 1.2rem; cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
+    .send-btn:hover { background: #6D28D9; transform: scale(1.05); }
+    .send-btn:disabled { background: var(--border); cursor: not-allowed; transform: none; }
+
+    @media (max-width: 600px) {
+      .message { max-width: 96%; }
+      .roles-grid { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ROLE SELECTION -->
+<div id="role-screen">
+  <div class="logo">✨ Avatariya AI</div>
+  <p class="subtitle">Умный ассистент для сотрудников парка</p>
+  <p class="roles-title">Выбери свою роль:</p>
+  <div class="roles-grid">
+    <div class="role-card" onclick="selectRole('cashier','🎟️','Кассир')">
+      <div class="icon">🎟️</div><div class="name">Кассир</div>
+    </div>
+    <div class="role-card" onclick="selectRole('operator','🎡','Оператор')">
+      <div class="icon">🎡</div><div class="name">Оператор</div>
+    </div>
+    <div class="role-card" onclick="selectRole('waiter','🍽️','Официант')">
+      <div class="icon">🍽️</div><div class="name">Официант</div>
+    </div>
+    <div class="role-card" onclick="selectRole('barmen','🍹','Бармен')">
+      <div class="icon">🍹</div><div class="name">Бармен</div>
+    </div>
+    <div class="role-card full" onclick="selectRole('hr','👥','HR')">
+      <div class="icon">👥</div><div class="name">HR</div>
+    </div>
+  </div>
+</div>
+
+<!-- CHAT -->
+<div id="chat-screen">
+  <div class="chat-header">
+    <div class="left">
+      <div class="header-avatar" id="hdr-icon">🎟️</div>
+      <div class="header-info">
+        <h3 id="hdr-role">Кассир</h3>
+        <p>Avatariya AI · онлайн</p>
+      </div>
+    </div>
+    <button class="change-btn" onclick="changeRole()">← Сменить роль</button>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="welcome" id="welcome-block">
+      <div class="big-icon" id="welcome-icon">🎟️</div>
+      <h3>Привет! Я твой AI-ассистент</h3>
+      <p>Задай любой вопрос по работе в Avatariya</p>
+      <div class="suggestions" id="chips"></div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <textarea id="input" placeholder="Задай вопрос..." rows="1"
+      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+  </div>
+</div>
+
+<script>
+  const SUGGESTIONS = {
+    cashier:  ['Как пробить промокод?', 'Как работают Авики?', 'Инструкция по мобильному приложению'],
+    operator: ['Правила для батута', 'Какие браслеты можно в экстрим?', 'Скрипт приёма гостей'],
+    waiter:   ['Норма столов в будний день', 'Как подтвердить заказ в приложении?', 'Круговая ротация'],
+    barmen:   ['Рецепт коктейля', 'Барная карта', 'Закрывашки для бухгалтерии'],
+    hr:       ['Механика адаптации', 'Система грейдов', 'Сценарий 5-минутки'],
+  };
+
+  let currentRole = null;
+  let loading = false;
+
+  marked.setOptions({ breaks: true, gfm: true });
+
+  function selectRole(role, icon, name) {
+    currentRole = { role, icon, name };
+    document.getElementById('role-screen').style.display = 'none';
+    document.getElementById('chat-screen').style.display = 'flex';
+    document.getElementById('hdr-icon').textContent = icon;
+    document.getElementById('hdr-role').textContent = name;
+    document.getElementById('welcome-icon').textContent = icon;
+
+    const chips = document.getElementById('chips');
+    chips.innerHTML = '';
+    (SUGGESTIONS[role] || []).forEach(text => {
+      const btn = document.createElement('button');
+      btn.className = 'chip';
+      btn.textContent = text;
+      btn.onclick = () => { document.getElementById('input').value = text; sendMessage(); };
+      chips.appendChild(btn);
+    });
+    document.getElementById('input').focus();
+  }
+
+  function changeRole() {
+    document.getElementById('chat-screen').style.display = 'none';
+    document.getElementById('role-screen').style.display = 'flex';
+    document.getElementById('messages').innerHTML = `
+      <div class="welcome" id="welcome-block">
+        <div class="big-icon" id="welcome-icon">⭐</div>
+        <h3>Привет! Я твой AI-ассистент</h3>
+        <p>Задай любой вопрос по работе в Avatariya</p>
+        <div class="suggestions" id="chips"></div>
+      </div>`;
+    currentRole = null;
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+
+  function addMsg(type, content, sources) {
+    const container = document.getElementById('messages');
+    const welcome = document.getElementById('welcome-block');
+    if (welcome) welcome.remove();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-wrap';
+
+    if (type === 'user') {
+      wrap.innerHTML = `
+        <div class="message user">
+          <div class="msg-av">👤</div>
+          <div class="msg-bubble">${content.replace(/\n/g,'<br>').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&lt;br&gt;/g,'<br>')}</div>
+        </div>`;
+    } else if (type === 'bot') {
+      const html = marked.parse(content);
+      const srcHtml = sources && sources.length
+        ? `<div class="sources">📚 ${sources.map(s=>`<span class="src-tag">${s}</span>`).join('')}</div>` : '';
+      wrap.innerHTML = `
+        <div class="message bot">
+          <div class="msg-av">🤖</div>
+          <div class="msg-bubble">${html}</div>
+        </div>${srcHtml}`;
+    } else {
+      wrap.id = 'loading-msg';
+      wrap.innerHTML = `
+        <div class="message bot">
+          <div class="msg-av">🤖</div>
+          <div class="msg-bubble"><div class="loading-dots"><span></span><span></span><span></span></div></div>
+        </div>`;
+    }
+
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+    return wrap;
+  }
+
+  async function sendMessage() {
+    if (loading || !currentRole) return;
+    const input = document.getElementById('input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    loading = true;
+    document.getElementById('send-btn').disabled = true;
+
+    addMsg('user', message);
+    const loadEl = addMsg('loading');
+
+    try {
+      const res = await fetch('/.netlify/functions/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, role: currentRole.role })
+      });
+      const data = await res.json();
+      loadEl.remove();
+      addMsg('bot', data.answer || 'Не удалось получить ответ.', data.sources || []);
+    } catch {
+      loadEl.remove();
+      addMsg('bot', '⚠️ Ошибка соединения. Проверь интернет и попробуй снова.');
+    }
+
+    loading = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('input').focus();
+  }
+</script>
+</body>
+</html>
