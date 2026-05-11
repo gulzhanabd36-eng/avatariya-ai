@@ -17,68 +17,45 @@ exports.handler = async (event) => {
     const { message, role } = JSON.parse(event.body || '{}');
     if (!message || !role) return { statusCode: 400, headers, body: JSON.stringify({ error: 'message и role обязательны' }) };
 
-    // 1. Эмбеддинг запроса
-    const embRes = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'text-embedding-3-small', input: message })
-    });
-    const embData = await embRes.json();
-    if (!embData.data || !embData.data[0]) throw new Error('Embedding failed: ' + JSON.stringify(embData));
-    const queryEmb = embData.data[0].embedding;
-
-    // 2. Все чанки по роли из Supabase
+    // 1. Чанки без embedding (быстро!)
     const sbRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/knowledge_base?or=(role.eq.${role},role.eq.all)&select=id,content,source_file,category,keywords,embedding&limit=300`,
+      `${SUPABASE_URL}/rest/v1/knowledge_base?or=(role.eq.${role},role.eq.all)&select=id,content,source_file,category,keywords&limit=300`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
-    if (!sbRes.ok) throw new Error(`Supabase error: ${sbRes.status}`);
+    if (!sbRes.ok) throw new Error(`Supabase error: ${sbRes.status} ${await sbRes.text()}`);
     const chunks = await sbRes.json();
 
     if (!Array.isArray(chunks) || chunks.length === 0) {
       return { statusCode: 200, headers, body: JSON.stringify({ answer: 'В базе знаний нет информации по вашему вопросу.', sources: [] }) };
     }
 
-    // 3. Cosine similarity
-    function cosineSim(a, b) {
-      let dot = 0, normA = 0, normB = 0;
-      for (let i = 0; i < a.length; i++) {
-        dot += a[i] * b[i];
-        normA += a[i] * a[i];
-        normB += b[i] * b[i];
-      }
-      return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-    }
-
-    // 4. Векторное + keyword ранжирование
-    const words = message.toLowerCase().split(/[\s,\.!?;:()\/\-]+/).filter(w => w.length > 2);
+    // 2. Keyword scoring
+    const words = message.toLowerCase()
+      .split(/[\s,\.!?;:()\/\-]+/)
+      .filter(w => w.length > 2);
 
     const scored = chunks
-      .filter(c => c.embedding && Array.isArray(c.embedding))
       .map(c => {
-        const vecScore = cosineSim(queryEmb, c.embedding);
         const haystack = [
           c.content || '',
-          Array.isArray(c.keywords) ? c.keywords.join(' ') : '',
+          Array.isArray(c.keywords) ? c.keywords.join(' ') : (c.keywords || ''),
           c.category || '',
           c.source_file || ''
         ].join(' ').toLowerCase();
-        const kwScore = words.reduce((acc, w) => acc + (haystack.includes(w) ? 0.05 : 0), 0);
-        return { ...c, score: vecScore + kwScore };
+        const score = words.reduce((acc, w) => acc + (haystack.includes(w) ? 1 : 0), 0);
+        return { ...c, score };
       })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
+      .sort((a, b) => b.score - a.score);
 
-    if (scored.length === 0) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: 'По вашему вопросу ничего не найдено в базе знаний.', sources: [] }) };
-    }
+    // Берём топ-5 или все с очками если совсем нет совпадений
+    const top = scored[0].score > 0 ? scored.slice(0, 5) : scored.slice(0, 3);
 
-    // 5. Контекст для GPT-4o
-    const context = scored
+    // 3. Контекст
+    const context = top
       .map((c, i) => `[${i + 1}. ${c.source_file}]\n${c.content}`)
       .join('\n\n───\n\n');
 
-    // 6. GPT-4o ответ
+    // 4. GPT-4o
     const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -90,17 +67,16 @@ exports.handler = async (event) => {
             content: `Ты — AI-ассистент для сотрудников парка развлечений Avatariya (Алматы, Казахстан).
 
 Правила:
-- Отвечай на том языке, на котором задан вопрос (русский или казахский)
-- Используй ТОЛЬКО информацию из предоставленных документов
+- Отвечай на языке вопроса (русский или казахский)
+- Используй ТОЛЬКО информацию из документов
 - Отвечай чётко и структурированно
-- Если в документе есть изображения ![текст](url) — включай их в ответ как есть
-- Если есть HTML аккордеон <details><summary>...</summary>...</details> — включай как есть
-- Если информации нет — скажи об этом честно
+- Если есть изображения ![](url) — включай их в ответ
+- Если есть <details><summary>...</summary>...</details> — включай как есть
 - Не придумывай информацию`
           },
           {
             role: 'user',
-            content: `База знаний:\n\n${context}\n\n═══\n\nВопрос сотрудника: ${message}`
+            content: `База знаний:\n\n${context}\n\n═══\n\nВопрос: ${message}`
           }
         ],
         max_tokens: 2000,
@@ -110,12 +86,12 @@ exports.handler = async (event) => {
 
     const gptData = await gptRes.json();
     const answer = gptData.choices?.[0]?.message?.content || 'Не удалось получить ответ.';
-    const sources = [...new Set(scored.map(c => c.source_file).filter(Boolean))];
+    const sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
 
     return { statusCode: 200, headers, body: JSON.stringify({ answer, sources }) };
 
   } catch (err) {
-    console.error('Chat error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: `Ошибка сервера: ${err.message}` }) };
+    console.error('Chat error:', err.message);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: `Ошибка: ${err.message}` }) };
   }
 };
