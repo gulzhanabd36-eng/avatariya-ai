@@ -1,3 +1,5 @@
+const fetch = require('node-fetch');
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -17,7 +19,7 @@ exports.handler = async (event) => {
     const { message, role } = JSON.parse(event.body || '{}');
     if (!message || !role) return { statusCode: 400, headers, body: JSON.stringify({ error: 'message и role обязательны' }) };
 
-    // 1. Получаем эмбеддинг запроса
+    // 1. Эмбеддинг запроса
     const embRes = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -26,7 +28,7 @@ exports.handler = async (event) => {
     const embData = await embRes.json();
     const queryEmb = embData.data[0].embedding;
 
-    // 2. Получаем все чанки по роли из Supabase
+    // 2. Все чанки по роли
     const sbRes = await fetch(
       `${SUPABASE_URL}/rest/v1/knowledge_base?or=(role.eq.${role},role.eq.all)&select=id,content,source_file,category,keywords,embedding&limit=300`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
@@ -49,25 +51,26 @@ exports.handler = async (event) => {
       return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
-    // 4. Keyword scoring (дополнительно)
+    // 4. Ранжирование: векторное + keyword
     const words = message.toLowerCase().split(/[\s,\.!?;:()\/\-]+/).filter(w => w.length > 2);
 
     const scored = chunks
       .filter(c => c.embedding && Array.isArray(c.embedding))
       .map(c => {
         const vecScore = cosineSim(queryEmb, c.embedding);
-        const haystack = [c.content || '', (c.keywords || []).join(' '), c.category || '', c.source_file || ''].join(' ').toLowerCase();
+        const haystack = [
+          c.content || '',
+          Array.isArray(c.keywords) ? c.keywords.join(' ') : '',
+          c.category || '',
+          c.source_file || ''
+        ].join(' ').toLowerCase();
         const kwScore = words.reduce((acc, w) => acc + (haystack.includes(w) ? 0.05 : 0), 0);
         return { ...c, score: vecScore + kwScore };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
-    if (scored.length === 0 || scored[0].score < 0.2) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: 'По вашему вопросу информация не найдена в базе знаний. Попробуйте переформулировать вопрос.', sources: [] }) };
-    }
-
-    // 5. Контекст для GPT-4o
+    // 5. Контекст
     const context = scored
       .map((c, i) => `[${i + 1}. ${c.source_file}]\n${c.content}`)
       .join('\n\n───\n\n');
@@ -81,7 +84,16 @@ exports.handler = async (event) => {
         messages: [
           {
             role: 'system',
-            content: `Ты — AI-ассистент для сотрудников парка развлечений Avatariya (Алматы, Казахстан).\n\nПравила:\n- Отвечай на том языке, на котором задан вопрос (русский или казахский)\n- Используй ТОЛЬКО информацию из предоставленных документов\n- Отвечай чётко и структурированно\n- Если в документе есть изображения ![текст](url) — включай их в ответ как есть\n- Если есть HTML аккордеон <details><summary>...</summary>...</details> — включай как есть\n- Если информации нет — скажи об этом честно\n- Не придумывай информацию`
+            content: `Ты — AI-ассистент для сотрудников парка развлечений Avatariya (Алматы, Казахстан).
+
+Правила:
+- Отвечай на том языке, на котором задан вопрос (русский или казахский)
+- Используй ТОЛЬКО информацию из предоставленных документов
+- Отвечай чётко и структурированно
+- Если в документе есть изображения ![текст](url) — включай их в ответ как есть
+- Если есть HTML аккордеон <details><summary>...</summary>...</details> — включай как есть
+- Если информации нет — скажи об этом честно
+- Не придумывай информацию`
           },
           {
             role: 'user',
@@ -101,6 +113,6 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('Chat error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Ошибка сервера. Попробуйте снова.' }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: `Ошибка сервера: ${err.message}` }) };
   }
 };
