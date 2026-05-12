@@ -29,7 +29,7 @@ exports.handler = async (event) => {
       console.error('Supabase error:', e.message);
     }
 
-    // 2. Keyword scoring — threshold lowered to 1, top 8 chunks
+    // 2. Keyword scoring — threshold 1, top 8 chunks
     const normalize = (str) => str.toLowerCase()
       .replace(/[^а-яёa-z0-9\s]/gi, ' ')
       .split(/\s+/)
@@ -66,21 +66,11 @@ exports.handler = async (event) => {
       }
     }
 
-    // 3. No relevant docs → fixed response, no GPT call
-    if (!hasRelevantDocs) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          answer: '❌ Этой информации нет в базе знаний. Уточните у менеджера смены или обратитесь в HR.',
-          sources: [],
-          from_kb: false
-        })
-      };
-    }
+    let systemPrompt, userContent;
 
-    // 4. GPT-4o — answer strictly from KB
-    const systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов из базы знаний.
+    if (hasRelevantDocs) {
+      // Answer from knowledge base
+      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов из базы знаний.
 
 Правила:
 - Отвечай на языке вопроса (русский или казахский)
@@ -89,7 +79,22 @@ exports.handler = async (event) => {
 - Отвечай чётко и структурированно
 - Если документ частично отвечает — дай ответ по документу и укажи источник`;
 
-    const userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
+      userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
+
+    } else {
+      // No KB docs — give practical GPT advice
+      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Тебя спрашивают о рабочей ситуации.
+
+Дай конкретный пошаговый совет как действовать. Отвечай практично, без лишних слов.
+
+Правила:
+- Отвечай на языке вопроса (русский или казахский)
+- Давай чёткие шаги: 1, 2, 3...
+- Используй знания о работе в ресторанах, парках развлечений, сервисе
+- В конце всегда добавляй: "💡 Для точных регламентов Avatariya — уточни у менеджера смены."`;
+
+      userContent = `Ситуация: ${message}`;
+    }
 
     const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -101,7 +106,7 @@ exports.handler = async (event) => {
           { role: 'user', content: userContent }
         ],
         max_tokens: 2000,
-        temperature: 0.1
+        temperature: hasRelevantDocs ? 0.1 : 0.3
       })
     });
 
@@ -111,7 +116,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ answer, sources, from_kb: true })
+      body: JSON.stringify({ answer, sources, from_kb: hasRelevantDocs })
     };
 
   } catch (err) {
