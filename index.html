@@ -18,7 +18,8 @@
       --text-light: #6B7280;
       --border: #E5E7EB;
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); min-height: 100vh; color: var(--text); }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); height: 100%; color: var(--text); }
 
     #role-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
     .logo { font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, var(--primary), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; text-align: center; }
@@ -31,7 +32,7 @@
     .role-card .name { font-weight: 700; font-size: 1rem; }
     .role-card.full { grid-column: 1 / -1; }
 
-    #chat-screen { display: none; flex-direction: column; height: 100vh; max-width: 800px; margin: 0 auto; }
+    #chat-screen { display: none; flex-direction: column; height: 100vh; width: 100%; }
     .chat-header { background: linear-gradient(135deg, #7C3AED, #6D28D9); color: white; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 12px rgba(0,0,0,0.15); flex-shrink: 0; }
     .chat-header .left { display: flex; align-items: center; gap: 12px; }
     .header-avatar { width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
@@ -220,16 +221,19 @@
       { label: "🗣️ Скрипт входа (RU)", query: "Скрипт оператора входа русский" },
       { label: "🗣️ Скрипт входа (KZ)", query: "Скрипт оператора входа казахский" },
       { label: "📖 Книга операторов", query: "Книга операторов парка" },
+      { label: "🍽️ Ванпейдж (меню) Аватария", query: "бургер пицца меню блюда Ванпейдж" },
     ],
     waiter: [
       { label: "🔄 Ротация официантов", query: "Регламент ротации официантов нормы столов" },
       { label: "🏪 Зона самообслуживания", action: "selfservice" },
       { label: "📖 Книга официантов", query: "Книга официантов стандарты обслуживания" },
+      { label: "🍽️ Ванпейдж (меню) Аватария", query: "бургер пицца меню блюда Ванпейдж" },
     ],
     barmen: [
       { label: "📋 Барная карта", action: "barcard" },
       { label: "📄 Закрывашки", query: "Закрывашки для бухгалтерии" },
       { label: "🧪 Химия для кухни и бара", query: "Производственные зоны химия кухня бар" },
+      { label: "🍽️ Ванпейдж (меню) Аватария", query: "бургер пицца меню блюда Ванпейдж" },
     ],
     hr: [
       { label: "📊 Механика адаптации", query: "Механика адаптации грейдирования аттестации" },
