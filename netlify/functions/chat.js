@@ -29,8 +29,7 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ answer: 'В базе знаний нет информации по вашему вопросу.', sources: [] }) };
     }
 
-    // 2. Keyword scoring — улучшенный
-    // Нормализуем запрос: убираем знаки, разбиваем на слова длиной > 2
+    // 2. Keyword scoring
     const normalize = (str) => str.toLowerCase()
       .replace(/[^а-яёa-z0-9\s]/gi, ' ')
       .split(/\s+/)
@@ -46,17 +45,15 @@ exports.handler = async (event) => {
         c.source_file || ''
       ].join(' '));
 
-      // Считаем совпадения с весом по позиции (category/source > content)
       const categoryHay = normalize((c.category || '') + ' ' + (c.source_file || ''));
       let score = 0;
       for (const w of queryWords) {
-        if (categoryHay.includes(w)) score += 3; // Совпадение в категории = 3 очка
-        else if (haystack.includes(w)) score += 1; // Совпадение в тексте = 1 очко
+        if (categoryHay.includes(w)) score += 3;
+        else if (haystack.includes(w)) score += 1;
       }
       return { ...c, score };
     }).sort((a, b) => b.score - a.score);
 
-    // Берём топ-5 релевантных (или топ-3 если нет совпадений)
     const top = scored[0].score > 0 ? scored.slice(0, 5) : scored.slice(0, 3);
 
     // 3. Контекст для GPT
@@ -79,9 +76,11 @@ exports.handler = async (event) => {
 - Отвечай на языке вопроса (русский или казахский)
 - Используй ТОЛЬКО информацию из документов ниже
 - Отвечай чётко и структурированно
+- Если в документе есть меню или список блюд — перечисли их с описанием и составом, даже если цен нет
 - Если есть изображения ![](url) — включай их в ответ как есть
 - Если есть <details><summary>...</summary>...</details> — включай как есть
-- Не придумывай информацию которой нет в документах`
+- Не придумывай информацию которой нет в документах
+- Не пиши что «нет информации о ценах» — просто опиши что есть в документе`
           },
           {
             role: 'user',
