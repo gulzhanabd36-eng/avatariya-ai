@@ -25,21 +25,37 @@ exports.handler = async (event) => {
       return { statusCode: 403, headers, body: JSON.stringify({ error: `Expert '${expert_name}' not allowed` }) };
     }
 
+    // Experts that need Supabase credentials
+    const NEEDS_SUPABASE = ['process_advisor', 'search_knowledge_base'];
+
     const expertParams = { ...params };
-    if (!expertParams.openai_api_key && process.env.OPENAI_API_KEY) expertParams.openai_api_key = process.env.OPENAI_API_KEY;
-    if (!expertParams.supabase_url && process.env.SUPABASE_URL) expertParams.supabase_url = process.env.SUPABASE_URL;
-    if (!expertParams.supabase_key && process.env.SUPABASE_KEY) expertParams.supabase_key = process.env.SUPABASE_KEY;
+
+    // Always inject OpenAI key
+    if (!expertParams.openai_api_key && process.env.OPENAI_API_KEY) {
+      expertParams.openai_api_key = process.env.OPENAI_API_KEY;
+    }
+
+    // Only inject Supabase for experts that need it
+    if (NEEDS_SUPABASE.includes(expert_name)) {
+      if (!expertParams.supabase_url && process.env.SUPABASE_URL) expertParams.supabase_url = process.env.SUPABASE_URL;
+      if (!expertParams.supabase_key && process.env.SUPABASE_KEY) expertParams.supabase_key = process.env.SUPABASE_KEY;
+    }
 
     const res = await fetch('https://api.extella.ai/api/expert/run', {
       method: 'POST',
-      headers: { 'X-Auth-Token': EXTELLA_TOKEN, 'Content-Type': 'application/json', 'X-Profile-Id': 'default', 'X-Agent-Id': 'agent_extella_default' },
+      headers: {
+        'X-Auth-Token': EXTELLA_TOKEN,
+        'Content-Type': 'application/json',
+        'X-Profile-Id': 'default',
+        'X-Agent-Id': 'agent_extella_default'
+      },
       body: JSON.stringify({ expert_name, params: expertParams })
     });
 
     const data = await res.json();
     if (!res.ok) return { statusCode: res.status, headers, body: JSON.stringify({ error: data }) };
 
-    // Smart text extraction from Python dict result
+    // Smart text extraction from Python dict result string
     let textResult = data.result || '';
     if (typeof textResult === 'string') {
       const fields = ['text', 'analysis', 'summary', 'advice', 'comparison', 'document'];
@@ -56,7 +72,8 @@ exports.handler = async (event) => {
           }
           textResult = textResult.slice(start, end)
             .replace(/\\n/g, '\n')
-            .replace(/\\'/g, "'");
+            .replace(/\\'/g, "'")
+            .replace(/\\"/g, '"');
           break;
         }
       }
