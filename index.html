@@ -467,6 +467,108 @@
     document.getElementById('send-btn').disabled = false;
     document.getElementById('input').focus();
   }
+
+  // ── ЗАГРУЗКА ДОКУМЕНТОВ ──────────────────────────────────────────
+  let uploadedFile = null;
+
+  function openFileDialog() {
+    document.getElementById('file-input').click();
+  }
+
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    uploadedFile = file;
+    document.getElementById('upload-panel').style.display = 'flex';
+    document.getElementById('upload-filename').textContent = file.name;
+    const isExcel = /\.xlsx$|\.csv$|\.xls$/i.test(file.name);
+    document.getElementById('btn-summarize').style.display = isExcel ? 'none' : '';
+    document.getElementById('btn-contract').style.display = isExcel ? 'none' : '';
+    document.getElementById('btn-excel').style.display = isExcel ? '' : 'none';
+    event.target.value = '';
+  }
+
+  function clearUpload() {
+    uploadedFile = null;
+    document.getElementById('upload-panel').style.display = 'none';
+  }
+
+  function parseExpertText(result) {
+    if (!result) return '⚠️ Нет результата';
+    const s = typeof result === 'string' ? result : JSON.stringify(result);
+    const fields = ['text', 'analysis', 'summary', 'advice', 'comparison', 'document'];
+    for (const field of fields) {
+      const marker = "'" + field + "': '";
+      const idx = s.indexOf(marker);
+      if (idx !== -1) {
+        const start = idx + marker.length;
+        let end = start;
+        while (end < s.length) {
+          if (s[end] === '\\') { end += 2; continue; }
+          if (s[end] === "'") break;
+          end++;
+        }
+        return s.slice(start, end)
+          .replace(/\\n/g, '\n')
+          .replace(/\\'/g, "'")
+          .replace(/\\"/g, '"');
+      }
+    }
+    return s.length > 2000 ? s.slice(0, 2000) + '...' : s;
+  }
+
+  async function analyzeUploadedFile(mode) {
+    if (!uploadedFile || loading) return;
+    loading = true;
+    document.getElementById('send-btn').disabled = true;
+    const labels = {
+      summarize: '📋 Краткое резюме',
+      contract: '📝 Анализ договора',
+      excel: '📊 Анализ таблицы'
+    };
+    removeWelcome();
+    addUserBubble('📎 ' + uploadedFile.name + ' — ' + labels[mode]);
+    const container = document.getElementById('messages');
+    const loadWrap = document.createElement('div');
+    loadWrap.id = 'loading-msg';
+    loadWrap.style.cssText = 'display:flex;align-self:flex-start;';
+    loadWrap.innerHTML = '<div class="message bot"><div class="msg-av">🤖</div><div class="msg-bubble"><div class="loading-dots"><span></span><span></span><span></span></div></div></div>';
+    container.appendChild(loadWrap);
+    scrollBottom();
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const b64 = e.target.result.split(',')[1];
+      const expertMap = {
+        summarize: 'summarize_document',
+        contract: 'analyze_contract',
+        excel: 'analyze_excel_data'
+      };
+      const params = { document_base64: b64, file_name: uploadedFile.name };
+      if (mode === 'excel') {
+        params.question = 'Найди аномалии, дубли и ошибки заполнения. Дай общую оценку данных.';
+      }
+      try {
+        const res = await fetch('/.netlify/functions/expert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expert_name: expertMap[mode], params })
+        });
+        const data = await res.json();
+        document.getElementById('loading-msg')?.remove();
+        const text = data.text || parseExpertText(data.result || '');
+        addBotMsg(text || '⚠️ Не удалось получить результат', [uploadedFile.name]);
+      } catch(err) {
+        document.getElementById('loading-msg')?.remove();
+        addBotMsg('⚠️ Ошибка при анализе: ' + err.message, []);
+      }
+      loading = false;
+      document.getElementById('send-btn').disabled = false;
+      clearUpload();
+    };
+    reader.readAsDataURL(uploadedFile);
+  }
+
 </script>
 </body>
 </html>
