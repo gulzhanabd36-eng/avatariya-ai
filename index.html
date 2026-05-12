@@ -229,7 +229,7 @@
     <button class="tool-card" onclick="toolAction('analyze')">
       <div class="t-icon">📄</div>
       <div class="t-title">Анализ документа</div>
-      <div class="t-desc">Права, обязанности, риски по роли</div>
+      <div class="t-desc">Права, обязанности, риски</div>
     </button>
     <button class="tool-card" onclick="toolAction('compare')">
       <div class="t-icon">🔀</div>
@@ -304,9 +304,6 @@
     "🧗 Скалодром"
   ];
 
-  // ─── КНОПКИ ПО РОЛЯМ ───
-  // 5-минутка: ТОЛЬКО у HR!
-  // У официанта и бармена — нет
   const ROLE_BUTTONS = {
     cashier: [
       { label: "📱 Мобильное приложение", query: "Инструкция по мобильному приложению" },
@@ -597,29 +594,17 @@
     return s.length > 2000 ? s.slice(0, 2000) + '...' : s;
   }
 
-  // Role labels for upload context
-  const ROLE_LABELS = {
-    cashier: 'кассира',
-    waiter: 'официанта',
-    barmen: 'бармена',
-    operator: 'оператора',
-    hr: 'HR-специалиста'
-  };
-
   async function analyzeUploadedFile(mode) {
     if (!uploadedFile || loading) return;
     loading = true;
     document.getElementById('send-btn').disabled = true;
-    const role = currentRole ? currentRole.role : '';
-    const roleLabel = ROLE_LABELS[role] || '';
     const labels = {
       summarize: '📋 Краткое резюме',
       contract: '📝 Анализ документа',
-      excel: '📊 Анализ таблицы',
-      write: '✍️ Написать документ'
+      excel: '📊 Анализ таблицы'
     };
     removeWelcome();
-    addUserBubble('📎 ' + uploadedFile.name + ' — ' + labels[mode] + (roleLabel ? ' для ' + roleLabel : ''));
+    addUserBubble('📎 ' + uploadedFile.name + ' — ' + labels[mode]);
     const container = document.getElementById('messages');
     const loadWrap = document.createElement('div');
     loadWrap.id = 'loading-msg';
@@ -638,8 +623,7 @@
       };
       const params = {
         document_base64: b64,
-        file_name: uploadedFile.name,
-        role: role
+        file_name: uploadedFile.name
       };
       if (mode === 'excel') {
         params.question = 'Найди аномалии, дубли и ошибки заполнения. Дай общую оценку данных.';
@@ -695,7 +679,7 @@
     if (action === 'advice') {
       removeWelcome();
       addUserBubble('💡 Советы');
-      addBotMsg('Опиши ситуацию — дам пошаговый совет!\n\nНапример:\n— «Гость недоволен, что делать?»\n— «Как передать столы при смене?»\n— «Что делать если терминал завис?»', []);
+      addBotMsg('Опиши ситуацию — дам пошаговый совет!\n\nНапример:\n— «Гость недоволен, что делать?»\n— «Гость хочет вернуть деньги — как быть?»\n— «Коллега не вышел на смену, что делать?»\n— «Гость ведёт себя агрессивно»', []);
       switchTab('quick');
       return;
     }
@@ -760,7 +744,6 @@
 
     try {
       const [b64_1, b64_2] = await Promise.all([toBase64(compareFile1), toBase64(compareFile2)]);
-      const role = currentRole ? currentRole.role : '';
       const res = await fetch('/.netlify/functions/expert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -770,8 +753,7 @@
             document_base64_1: b64_1,
             file_name_1: compareFile1Name,
             document_base64_2: b64_2,
-            file_name_2: compareFile2Name,
-            role: role
+            file_name_2: compareFile2Name
           }
         })
       });
