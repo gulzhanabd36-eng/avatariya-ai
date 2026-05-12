@@ -109,6 +109,25 @@
     .upload-action-btn:hover { background: #6D28D9; }
     .upload-clear-btn { background: none; border: none; color: var(--text-light); cursor: pointer; font-size: 1.1rem; padding: 0 4px; line-height: 1; }
 
+
+    .bottom-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--white); flex-shrink: 0; }
+    .bottom-tab { flex: 1; padding: 9px 0; font-size: 0.78rem; font-weight: 700; border: none; cursor: pointer; border-bottom: 2.5px solid transparent; color: var(--text-light); background: var(--white); transition: all 0.15s; }
+    .bottom-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tools-grid { padding: 8px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; max-height: 175px; overflow-y: auto; flex-shrink: 0; background: var(--white); }
+    .tool-card { background: var(--primary-bg); border: 1.5px solid var(--border); border-radius: 10px; padding: 8px; cursor: pointer; text-align: left; transition: border-color 0.15s; }
+    .tool-card:hover { border-color: var(--primary-light); }
+    .tool-card .t-icon { font-size: 1.2rem; margin-bottom: 3px; }
+    .tool-card .t-title { font-size: 0.72rem; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .tool-card .t-desc { font-size: 0.65rem; color: var(--text-light); line-height: 1.3; margin-top: 2px; }
+    .compare-panel { padding: 10px 14px; background: var(--primary-bg); border-top: 1px solid var(--border); display: none; flex-direction: column; gap: 8px; flex-shrink: 0; }
+    .compare-drop { border: 1.5px dashed var(--primary-light); border-radius: 8px; padding: 10px 12px; cursor: pointer; font-size: 0.78rem; color: var(--text-light); background: var(--white); display: block; transition: all 0.15s; }
+    .compare-drop.loaded { border-color: #16a34a; color: #16a34a; background: #f0fdf4; }
+    .compare-drop input { display: none; }
+    .compare-actions { display: flex; gap: 8px; }
+    .compare-go-btn { flex: 1; background: var(--primary); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+    .compare-go-btn:disabled { background: var(--border); cursor: not-allowed; }
+    .compare-cancel-btn { background: var(--white); border: 1px solid var(--border); color: var(--primary); padding: 8px 12px; border-radius: 8px; font-size: 0.78rem; cursor: pointer; }
+
     @media (max-width: 600px) {
       .message { max-width: 95%; }
       .roles-grid { max-width: 100%; }
@@ -160,17 +179,78 @@
     </div>
   </div>
 
-  <div class="quick-btns" id="quick-btns"></div>
-
   <input type="file" id="file-input" style="display:none" accept=".pdf,.docx,.doc,.txt,.xlsx,.csv,.xls" onchange="handleFileSelect(event)">
+  <input type="file" id="file-input-2" style="display:none" accept=".pdf,.docx,.doc,.txt" onchange="handleFileSelect2(event)">
 
+  <!-- Upload panel (single file) -->
   <div class="upload-panel" id="upload-panel">
     <span style="font-size:1.1rem;flex-shrink:0">📎</span>
     <span class="upload-file-name" id="upload-filename"></span>
     <button class="upload-action-btn" id="btn-summarize" onclick="analyzeUploadedFile('summarize')">📋 Краткое резюме</button>
-    <button class="upload-action-btn" id="btn-contract" onclick="analyzeUploadedFile('contract')">📝 Анализ документа</button>
+    <button class="upload-action-btn" id="btn-contract" onclick="analyzeUploadedFile('contract')">📄 Анализ</button>
     <button class="upload-action-btn" id="btn-excel" onclick="analyzeUploadedFile('excel')" style="display:none">📊 Анализ таблицы</button>
     <button class="upload-clear-btn" onclick="clearUpload()">✕</button>
+  </div>
+
+  <!-- Compare panel (two files) -->
+  <div class="compare-panel" id="compare-panel">
+    <div style="font-size:0.82rem;font-weight:700;color:var(--primary)">🔀 Сравнение документов</div>
+    <label class="compare-drop" id="compare-drop-1">
+      <span id="compare-name-1">📎 Первый документ — нажми чтобы выбрать</span>
+      <input type="file" accept=".pdf,.docx,.doc,.txt" onchange="handleCompareFile(event,1)">
+    </label>
+    <label class="compare-drop" id="compare-drop-2">
+      <span id="compare-name-2">📎 Второй документ — нажми чтобы выбрать</span>
+      <input type="file" accept=".pdf,.docx,.doc,.txt" onchange="handleCompareFile(event,2)">
+    </label>
+    <div class="compare-actions">
+      <button class="compare-go-btn" id="compare-go-btn" onclick="runCompare()" disabled>🔀 Сравнить</button>
+      <button class="compare-cancel-btn" onclick="closeCompare()">Отмена</button>
+    </div>
+    <div style="font-size:0.7rem;color:var(--text-light);text-align:center" id="compare-hint">Загрузи оба файла чтобы активировать</div>
+  </div>
+
+  <!-- Bottom tabs -->
+  <div class="bottom-tabs" id="bottom-tabs">
+    <button class="bottom-tab active" id="tab-quick" onclick="switchTab('quick')">⚡ Быстрые</button>
+    <button class="bottom-tab" id="tab-tools" onclick="switchTab('tools')">🛠️ Инструменты</button>
+  </div>
+
+  <!-- Quick buttons panel -->
+  <div class="quick-btns" id="quick-btns"></div>
+
+  <!-- Tools grid panel -->
+  <div class="tools-grid" id="tools-grid" style="display:none">
+    <button class="tool-card" onclick="toolAction('summarize')">
+      <div class="t-icon">📋</div>
+      <div class="t-title">Краткое резюме</div>
+      <div class="t-desc">Загрузи документ → главное за 1 мин</div>
+    </button>
+    <button class="tool-card" onclick="toolAction('analyze')">
+      <div class="t-icon">📄</div>
+      <div class="t-title">Анализ документа</div>
+      <div class="t-desc">Права, обязанности, риски по роли</div>
+    </button>
+    <button class="tool-card" onclick="toolAction('compare')">
+      <div class="t-icon">🔀</div>
+      <div class="t-title">Сравнить 2 документа</div>
+      <div class="t-desc">Загрузи два файла → найди отличия</div>
+    </button>
+    <button class="tool-card" onclick="toolAction('excel')">
+      <div class="t-icon">📊</div>
+      <div class="t-title">Анализ таблицы</div>
+      <div class="t-desc">Excel/CSV → ошибки и аномалии</div>
+    </button>
+    <button class="tool-card" onclick="toolAction('write')">
+      <div class="t-icon">✍️</div>
+      <div class="t-title">Написать документ</div>
+      <div class="t-desc">Письмо, записка, ответ клиенту</div>
+    </button>
+    <button class="tool-card" onclick="toolAction('advice')">
+      <div class="t-icon">💡</div>
+      <div class="t-title">Советы</div>
+      <div class="t-desc">Подскажу как действовать в ситуации</div>
+    </button>
   </div>
 
   <div class="input-area">
@@ -583,6 +663,130 @@
       clearUpload();
     };
     reader.readAsDataURL(uploadedFile);
+  }
+
+
+  // ── TABS ──────────────────────────────────────────────────────────
+  let currentTab = 'quick';
+
+  function switchTab(tab) {
+    currentTab = tab;
+    document.getElementById('tab-quick').classList.toggle('active', tab === 'quick');
+    document.getElementById('tab-tools').classList.toggle('active', tab === 'tools');
+    document.getElementById('quick-btns').style.display = tab === 'quick' ? 'flex' : 'none';
+    document.getElementById('tools-grid').style.display = tab === 'tools' ? 'grid' : 'none';
+  }
+
+  // ── TOOL ACTIONS ──────────────────────────────────────────────────
+  function toolAction(action) {
+    if (action === 'compare') {
+      document.getElementById('compare-panel').style.display = 'flex';
+      document.getElementById('upload-panel').style.display = 'none';
+      switchTab('quick');
+      return;
+    }
+    if (action === 'write') {
+      removeWelcome();
+      addUserBubble('✍️ Написать документ');
+      addBotMsg('Конечно! Скажи что нужно написать:\n\n— Письмо\n— Служебная записка\n— Ответ клиенту\n— Регламент или инструкция\n\nПример: *«Напиши служебную записку об опоздании»*', []);
+      switchTab('quick');
+      return;
+    }
+    if (action === 'advice') {
+      removeWelcome();
+      addUserBubble('💡 Советы');
+      addBotMsg('Опиши ситуацию — дам пошаговый совет!\n\nНапример:\n— «Гость недоволен, что делать?»\n— «Как передать столы при смене?»\n— «Что делать если терминал завис?»', []);
+      switchTab('quick');
+      return;
+    }
+    // summarize, analyze, excel — open file dialog
+    document.getElementById('file-input').click();
+    switchTab('quick');
+  }
+
+  // ── COMPARE ───────────────────────────────────────────────────────
+  let compareFile1 = null;
+  let compareFile2 = null;
+  let compareFile1Name = '';
+  let compareFile2Name = '';
+
+  function handleCompareFile(event, num) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const drop = document.getElementById('compare-drop-' + num);
+    const nameEl = document.getElementById('compare-name-' + num);
+    drop.classList.add('loaded');
+    nameEl.textContent = '✅ ' + file.name;
+    if (num === 1) { compareFile1 = file; compareFile1Name = file.name; }
+    else { compareFile2 = file; compareFile2Name = file.name; }
+    const both = compareFile1 && compareFile2;
+    document.getElementById('compare-go-btn').disabled = !both;
+    document.getElementById('compare-hint').textContent = both ? 'Готово! Нажми «Сравнить»' : 'Загрузи оба файла чтобы активировать';
+    event.target.value = '';
+  }
+
+  function closeCompare() {
+    document.getElementById('compare-panel').style.display = 'none';
+    compareFile1 = null; compareFile2 = null;
+    compareFile1Name = ''; compareFile2Name = '';
+    document.getElementById('compare-drop-1').classList.remove('loaded');
+    document.getElementById('compare-drop-2').classList.remove('loaded');
+    document.getElementById('compare-name-1').textContent = '📎 Первый документ — нажми чтобы выбрать';
+    document.getElementById('compare-name-2').textContent = '📎 Второй документ — нажми чтобы выбрать';
+    document.getElementById('compare-go-btn').disabled = true;
+  }
+
+  async function runCompare() {
+    if (!compareFile1 || !compareFile2 || loading) return;
+    loading = true;
+    document.getElementById('send-btn').disabled = true;
+    removeWelcome();
+    addUserBubble('🔀 Сравниваю: ' + compareFile1Name + ' и ' + compareFile2Name);
+    document.getElementById('compare-panel').style.display = 'none';
+
+    const container = document.getElementById('messages');
+    const loadWrap = document.createElement('div');
+    loadWrap.id = 'loading-msg';
+    loadWrap.style.cssText = 'display:flex;align-self:flex-start;';
+    loadWrap.innerHTML = '<div class="message bot"><div class="msg-av">🤖</div><div class="msg-bubble"><div class="loading-dots"><span></span><span></span><span></span></div></div></div>';
+    container.appendChild(loadWrap);
+    scrollBottom();
+
+    const toBase64 = (file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+      reader.readAsDataURL(file);
+    });
+
+    try {
+      const [b64_1, b64_2] = await Promise.all([toBase64(compareFile1), toBase64(compareFile2)]);
+      const role = currentRole ? currentRole.role : '';
+      const res = await fetch('/.netlify/functions/expert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expert_name: 'compare_documents',
+          params: {
+            document_base64_1: b64_1,
+            file_name_1: compareFile1Name,
+            document_base64_2: b64_2,
+            file_name_2: compareFile2Name,
+            role: role
+          }
+        })
+      });
+      const data = await res.json();
+      document.getElementById('loading-msg')?.remove();
+      const text = data.text || parseExpertText(data.result || '');
+      addBotMsg(text || '⚠️ Не удалось сравнить документы', [compareFile1Name, compareFile2Name]);
+    } catch(err) {
+      document.getElementById('loading-msg')?.remove();
+      addBotMsg('⚠️ Ошибка при сравнении: ' + err.message, []);
+    }
+
+    loading = false;
+    document.getElementById('send-btn').disabled = false;
+    closeCompare();
   }
 
 </script>
