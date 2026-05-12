@@ -10,7 +10,7 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
 
   const EXTELLA_TOKEN = process.env.EXTELLA_API_TOKEN;
-  if (!EXTELLA_TOKEN) return { statusCode: 500, headers, body: JSON.stringify({ error: 'EXTELLA_API_TOKEN not configured' }) };
+  if (!EXTELLA_TOKEN) return { statusCode: 500, headers, body: JSON.stringify({ error: '\u26a0\ufe0f EXTELLA_API_TOKEN not configured' }) };
 
   try {
     const body = JSON.parse(event.body || '{}');
@@ -25,17 +25,18 @@ exports.handler = async (event) => {
       return { statusCode: 403, headers, body: JSON.stringify({ error: `Expert '${expert_name}' not allowed` }) };
     }
 
-    // Experts that need Supabase credentials
-    const NEEDS_SUPABASE = ['process_advisor', 'search_knowledge_base'];
-
     const expertParams = { ...params };
+
+    // Remove role — experts no longer use it
+    delete expertParams.role;
 
     // Always inject OpenAI key
     if (!expertParams.openai_api_key && process.env.OPENAI_API_KEY) {
       expertParams.openai_api_key = process.env.OPENAI_API_KEY;
     }
 
-    // Only inject Supabase for experts that need it
+    // Inject Supabase only for experts that need it
+    const NEEDS_SUPABASE = ['process_advisor', 'search_knowledge_base'];
     if (NEEDS_SUPABASE.includes(expert_name)) {
       if (!expertParams.supabase_url && process.env.SUPABASE_URL) expertParams.supabase_url = process.env.SUPABASE_URL;
       if (!expertParams.supabase_key && process.env.SUPABASE_KEY) expertParams.supabase_key = process.env.SUPABASE_KEY;
@@ -52,11 +53,37 @@ exports.handler = async (event) => {
       body: JSON.stringify({ expert_name, params: expertParams })
     });
 
-    const data = await res.json();
-    if (!res.ok) return { statusCode: res.status, headers, body: JSON.stringify({ error: data }) };
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          status: 'error',
+          text: `\u26a0\ufe0f \u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430: ${res.status}. ${JSON.stringify(errData)}`,
+          error: errData
+        })
+      };
+    }
 
-    // Smart text extraction from Python dict result string
-    let textResult = data.result || '';
+    const data = await res.json();
+
+    // Check for execution error in result
+    const resultStr = data.result || '';
+    if (typeof resultStr === 'string' && resultStr.includes('[Execution Error]')) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          status: 'error',
+          text: `\u26a0\ufe0f ${resultStr}`,
+          error: resultStr
+        })
+      };
+    }
+
+    // Extract text from result
+    let textResult = resultStr;
     if (typeof textResult === 'string') {
       const fields = ['text', 'analysis', 'summary', 'advice', 'comparison', 'document'];
       for (const field of fields) {
@@ -87,6 +114,14 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('Expert proxy error:', err.message);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        status: 'error',
+        text: `\u26a0\ufe0f \u041e\u0448\u0438\u0431\u043a\u0430: ${err.message}`,
+        error: err.message
+      })
+    };
   }
 };
