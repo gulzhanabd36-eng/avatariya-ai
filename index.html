@@ -168,7 +168,7 @@
     <span style="font-size:1.1rem;flex-shrink:0">📎</span>
     <span class="upload-file-name" id="upload-filename"></span>
     <button class="upload-action-btn" id="btn-summarize" onclick="analyzeUploadedFile('summarize')">📋 Краткое резюме</button>
-    <button class="upload-action-btn" id="btn-contract" onclick="analyzeUploadedFile('contract')">📝 Анализ договора</button>
+    <button class="upload-action-btn" id="btn-contract" onclick="analyzeUploadedFile('contract')">📝 Анализ документа</button>
     <button class="upload-action-btn" id="btn-excel" onclick="analyzeUploadedFile('excel')" style="display:none">📊 Анализ таблицы</button>
     <button class="upload-clear-btn" onclick="clearUpload()">✕</button>
   </div>
@@ -517,17 +517,29 @@
     return s.length > 2000 ? s.slice(0, 2000) + '...' : s;
   }
 
+  // Role labels for upload context
+  const ROLE_LABELS = {
+    cashier: 'кассира',
+    waiter: 'официанта',
+    barmen: 'бармена',
+    operator: 'оператора',
+    hr: 'HR-специалиста'
+  };
+
   async function analyzeUploadedFile(mode) {
     if (!uploadedFile || loading) return;
     loading = true;
     document.getElementById('send-btn').disabled = true;
+    const role = currentRole ? currentRole.role : '';
+    const roleLabel = ROLE_LABELS[role] || '';
     const labels = {
       summarize: '📋 Краткое резюме',
-      contract: '📝 Анализ договора',
-      excel: '📊 Анализ таблицы'
+      contract: '📝 Анализ документа',
+      excel: '📊 Анализ таблицы',
+      write: '✍️ Написать документ'
     };
     removeWelcome();
-    addUserBubble('📎 ' + uploadedFile.name + ' — ' + labels[mode]);
+    addUserBubble('📎 ' + uploadedFile.name + ' — ' + labels[mode] + (roleLabel ? ' для ' + roleLabel : ''));
     const container = document.getElementById('messages');
     const loadWrap = document.createElement('div');
     loadWrap.id = 'loading-msg';
@@ -544,7 +556,11 @@
         contract: 'analyze_contract',
         excel: 'analyze_excel_data'
       };
-      const params = { document_base64: b64, file_name: uploadedFile.name };
+      const params = {
+        document_base64: b64,
+        file_name: uploadedFile.name,
+        role: role
+      };
       if (mode === 'excel') {
         params.question = 'Найди аномалии, дубли и ошибки заполнения. Дай общую оценку данных.';
       }
