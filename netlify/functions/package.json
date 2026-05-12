@@ -1,0 +1,9 @@
+{
+  "name": "avatariya-functions",
+  "version": "1.0.0",
+  "dependencies": {
+    "mammoth": "^1.7.0",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
+  }
+}
