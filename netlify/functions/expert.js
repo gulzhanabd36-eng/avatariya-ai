@@ -10,75 +10,101 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
 
   const EXTELLA_TOKEN = process.env.EXTELLA_API_TOKEN;
-  if (!EXTELLA_TOKEN) return { statusCode: 500, headers, body: JSON.stringify({ error: '\u26a0\ufe0f EXTELLA_API_TOKEN not configured' }) };
+  if (!EXTELLA_TOKEN) return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: '⚠️ EXTELLA_API_TOKEN not configured' }) };
 
   try {
     const body = JSON.parse(event.body || '{}');
     const { expert_name, params = {} } = body;
-    if (!expert_name) return { statusCode: 400, headers, body: JSON.stringify({ error: 'expert_name is required' }) };
+    if (!expert_name) return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: 'expert_name is required' }) };
 
     const ALLOWED_EXPERTS = [
       'analyze_contract', 'summarize_document', 'compare_documents',
       'analyze_excel_data', 'write_business_document', 'process_advisor', 'search_knowledge_base'
     ];
     if (!ALLOWED_EXPERTS.includes(expert_name)) {
-      return { statusCode: 403, headers, body: JSON.stringify({ error: `Expert '${expert_name}' not allowed` }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `Expert '${expert_name}' not allowed` }) };
     }
 
     const expertParams = { ...params };
-
-    // Remove role — experts no longer use it
     delete expertParams.role;
 
-    // Always inject OpenAI key
     if (!expertParams.openai_api_key && process.env.OPENAI_API_KEY) {
       expertParams.openai_api_key = process.env.OPENAI_API_KEY;
     }
 
-    // Inject Supabase only for experts that need it
     const NEEDS_SUPABASE = ['process_advisor', 'search_knowledge_base'];
     if (NEEDS_SUPABASE.includes(expert_name)) {
       if (!expertParams.supabase_url && process.env.SUPABASE_URL) expertParams.supabase_url = process.env.SUPABASE_URL;
       if (!expertParams.supabase_key && process.env.SUPABASE_KEY) expertParams.supabase_key = process.env.SUPABASE_KEY;
     }
 
-    const res = await fetch('https://api.extella.ai/api/expert/run', {
-      method: 'POST',
-      headers: {
-        'X-Auth-Token': EXTELLA_TOKEN,
-        'Content-Type': 'application/json',
-        'X-Profile-Id': 'default',
-        'X-Agent-Id': 'agent_extella_default'
-      },
-      body: JSON.stringify({ expert_name, params: expertParams })
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
+    let res;
+    try {
+      res = await fetch('https://api.extella.ai/api/expert/run', {
+        method: 'POST',
+        headers: {
+          'X-Auth-Token': EXTELLA_TOKEN,
+          'Content-Type': 'application/json',
+          'X-Profile-Id': 'default',
+          'X-Agent-Id': 'agent_extella_default'
+        },
+        body: JSON.stringify({ expert_name, params: expertParams })
+      });
+    } catch (fetchErr) {
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
           status: 'error',
-          text: `\u26a0\ufe0f \u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430: ${res.status}. ${JSON.stringify(errData)}`,
-          error: errData
+          text: `⚠️ Не удалось подключиться к Extella: ${fetchErr.message}`
         })
       };
     }
 
-    const data = await res.json();
+    const rawText = await res.text();
 
-    // Check for execution error in result
+    if (!rawText || rawText.trim() === '') {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          status: 'error',
+          text: `⚠️ Extella вернул пустой ответ (HTTP ${res.status}). Убедись что Extella Desktop запущена на твоём компьютере.`
+        })
+      };
+    }
+
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          status: 'error',
+          text: `⚠️ Ошибка ответа Extella: ${rawText.slice(0, 200)}`
+        })
+      };
+    }
+
+    if (!res.ok || data.status === 'error') {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          status: 'error',
+          text: `⚠️ ${data.message || JSON.stringify(data)}`
+        })
+      };
+    }
+
     const resultStr = data.result || '';
     if (typeof resultStr === 'string' && resultStr.includes('[Execution Error]')) {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({
-          status: 'error',
-          text: `\u26a0\ufe0f ${resultStr}`,
-          error: resultStr
-        })
+        body: JSON.stringify({ status: 'error', text: `⚠️ ${resultStr}` })
       };
     }
 
@@ -113,15 +139,10 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
-    console.error('Expert proxy error:', err.message);
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({
-        status: 'error',
-        text: `\u26a0\ufe0f \u041e\u0448\u0438\u0431\u043a\u0430: ${err.message}`,
-        error: err.message
-      })
+      body: JSON.stringify({ status: 'error', text: `⚠️ Ошибка: ${err.message}` })
     };
   }
 };
