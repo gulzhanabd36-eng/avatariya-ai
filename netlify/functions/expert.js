@@ -28,9 +28,12 @@ exports.handler = async (event) => {
     const expertParams = { ...params };
     delete expertParams.role;
 
-    if (!expertParams.openai_api_key && process.env.OPENAI_API_KEY) {
-      expertParams.openai_api_key = process.env.OPENAI_API_KEY;
+    // Inject Groq API key (not OpenAI - to save costs)
+    if (!expertParams.groq_api_key && process.env.GROQ_API_KEY) {
+      expertParams.groq_api_key = process.env.GROQ_API_KEY;
     }
+    // Keep openai_api_key as fallback only if explicitly needed
+    // expertParams.openai_api_key is NOT injected automatically
 
     const NEEDS_SUPABASE = ['process_advisor', 'search_knowledge_base'];
     if (NEEDS_SUPABASE.includes(expert_name)) {
@@ -51,64 +54,27 @@ exports.handler = async (event) => {
         body: JSON.stringify({ expert_name, params: expertParams })
       });
     } catch (fetchErr) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          status: 'error',
-          text: `⚠️ Не удалось подключиться к Extella: ${fetchErr.message}`
-        })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ Ошибка: ${fetchErr.message}` }) };
     }
 
     const rawText = await res.text();
-
     if (!rawText || rawText.trim() === '') {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          status: 'error',
-          text: `⚠️ Extella вернул пустой ответ (HTTP ${res.status}). Убедись что Extella Desktop запущена на твоём компьютере.`
-        })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ Extella вернул пустой ответ. Убедись что Extella Desktop запущена.` }) };
     }
 
     let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (parseErr) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          status: 'error',
-          text: `⚠️ Ошибка ответа Extella: ${rawText.slice(0, 200)}`
-        })
-      };
-    }
+    try { data = JSON.parse(rawText); }
+    catch(e) { return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ ${rawText.slice(0, 200)}` }) }; }
 
     if (!res.ok || data.status === 'error') {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          status: 'error',
-          text: `⚠️ ${data.message || JSON.stringify(data)}`
-        })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ ${data.message || JSON.stringify(data)}` }) };
     }
 
     const resultStr = data.result || '';
     if (typeof resultStr === 'string' && resultStr.includes('[Execution Error]')) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ status: 'error', text: `⚠️ ${resultStr}` })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ ${resultStr}` }) };
     }
 
-    // Extract text from result
     let textResult = resultStr;
     if (typeof textResult === 'string') {
       const fields = ['text', 'analysis', 'summary', 'advice', 'comparison', 'document'];
@@ -124,25 +90,15 @@ exports.handler = async (event) => {
             end++;
           }
           textResult = textResult.slice(start, end)
-            .replace(/\\n/g, '\n')
-            .replace(/\\'/g, "'")
-            .replace(/\\"/g, '"');
+            .replace(/\\n/g, '\n').replace(/\\'/g, "'").replace(/\\"/g, '"');
           break;
         }
       }
     }
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ status: 'success', expert_name, result: data.result, text: textResult })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ status: 'success', expert_name, result: data.result, text: textResult }) };
 
   } catch (err) {
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ status: 'error', text: `⚠️ Ошибка: ${err.message}` })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ ${err.message}` }) };
   }
 };
