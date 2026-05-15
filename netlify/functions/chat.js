@@ -48,7 +48,6 @@ exports.handler = async (event) => {
         return { ...c, score };
       }).sort((a, b) => b.score - a.score);
 
-      // Take top 10 chunks, 4000 chars each — gpt-4o-mini supports 128k context
       const top = scored[0]?.score >= 1 ? scored.slice(0, 10) : [];
       hasRelevantDocs = top.length > 0;
       if (top.length > 0) {
@@ -59,8 +58,16 @@ exports.handler = async (event) => {
 
     let systemPrompt, userContent;
     if (hasRelevantDocs) {
-      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов. Отвечай на языке вопроса (русский или казахский). Чётко и структурированно. Если есть изображения ![](url) — включай.`;
-      userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
+      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы).
+
+КРИТИЧЕСКОЕ ПРАВИЛО: Выводи текст ИМЕННО ТАК, КАК ОН НАПИСАН В ДОКУМЕНТЕ. Не пересказывай, не сжимай, не добавляй свои слова.
+
+Для вопросов про меню, списки, рецепты, ингредиенты, цены — обязательно выводи ВЕСЬ список/текст целиком слово в слово из документа.
+НЕ пиши "например" или "в том числе" — выводи ВСЕ пункты.
+
+Otvet na yazyke voprosa (russkiy ili kazakhskiy).
+Если есть изображения ![](url) — включай как есть.`;
+      userContent = `ДОКУМЕНТЫ ИЗ БАЗЫ ЗНАНИЙ (WORD FOR WORD):\n\n${contextText}\n\n═══\n\nВОПРОС: ${message}\n\nВыведи полный ответ слово в слово из документа. Не сокращай списки.`;
     } else {
       systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Дай конкретный пошаговый совет. Отвечай на языке вопроса. Шаги: 1, 2, 3... В конце: "💡 Для точных регламентов — уточни у менеджера смены."`;
       userContent = `Ситуация: ${message}`;
@@ -80,8 +87,8 @@ exports.handler = async (event) => {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
           ],
-          max_tokens: 2000,
-          temperature: hasRelevantDocs ? 0.1 : 0.3
+          max_tokens: 3000,
+          temperature: 0.0
         })
       });
     } catch (e) {
