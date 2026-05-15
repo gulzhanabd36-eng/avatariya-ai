@@ -11,7 +11,7 @@ exports.handler = async (event) => {
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_KEY = process.env.SUPABASE_KEY;
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
   try {
     const { message, role } = JSON.parse(event.body || '{}');
@@ -65,17 +65,16 @@ exports.handler = async (event) => {
       userContent = `Ситуация: ${message}`;
     }
 
-    // Groq - llama-3.1-8b-instant (131,072 TPM free tier)
     let res;
     try {
-      res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: 'llama-3.1-8b-instant',
+          model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
@@ -94,7 +93,7 @@ exports.handler = async (event) => {
     catch(e) { return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ ${raw.slice(0,200)}`, sources: [], from_kb: false }) }; }
 
     if (data.error) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Groq: ${data.error.message||JSON.stringify(data.error)}`, sources: [], from_kb: false }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ OpenAI: ${data.error.message}`, sources: [], from_kb: false }) };
     }
 
     const answer = data.choices?.[0]?.message?.content || '⚠️ Ответ не получен.';
