@@ -11,7 +11,7 @@ exports.handler = async (event) => {
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_KEY = process.env.SUPABASE_KEY;
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
   try {
     const { message, role } = JSON.parse(event.body || '{}');
@@ -57,13 +57,12 @@ exports.handler = async (event) => {
         return { ...c, score };
       }).sort((a, b) => b.score - a.score);
 
-      // Top 3 chunks, max 1500 chars each — fits within Groq free tier limits
-      const top = scored[0]?.score >= 1 ? scored.slice(0, 3) : [];
+      const top = scored[0]?.score >= 1 ? scored.slice(0, 5) : [];
       hasRelevantDocs = top.length > 0;
 
       if (top.length > 0) {
         contextText = top.map((c, i) => {
-          const content = (c.content || '').slice(0, 1500);
+          const content = (c.content || '').slice(0, 2000);
           return `[${i + 1}. ${c.source_file || c.category}]\n${content}`;
         }).join('\n\n───\n\n');
         sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
@@ -73,50 +72,48 @@ exports.handler = async (event) => {
     let systemPrompt, userContent;
 
     if (hasRelevantDocs) {
-      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов. Отвечай на языке вопроса. Отвечай чётко и структурированно.`;
+      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов из базы знаний.Отвечай на языке вопроса (русский или казахский). Отвечай чётко и структурированно. Если есть изображения ![](url) — включай как есть.`;
       userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
     } else {
-      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Дай конкретный пошаговый совет. Отвечай на языке вопроса. В конце добавляй: "💡 Для точных регламентов — уточни у менеджера смены."` ;
+      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Дай конкретный пошаговый совет. Отвечай на языке вопроса. Давай чёткие шаги: 1, 2, 3... В конце добавляй: "💡 Для точных регламентов — уточни у менеджера смены."`;
       userContent = `Ситуация: ${message}`;
     }
 
-    let gptRes;
+    // OpenRouter — DeepSeek V3 free
+    let res;
     try {
-      gptRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://avatariya.netlify.app',
+          'X-Title': 'Avatariya AI Assistant'
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'deepseek/deepseek-chat-v3-0324:free',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
           ],
-          max_tokens: 1000,
+          max_tokens: 1500,
           temperature: hasRelevantDocs ? 0.1 : 0.3
         })
       });
     } catch (fetchErr) {
-      return {
-        statusCode: 200, headers,
-        body: JSON.stringify({ answer: `⚠️ Не удалось подключиться к Groq: ${fetchErr.message}`, sources: [], from_kb: false })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка подключения: ${fetchErr.message}`, sources: [], from_kb: false }) };
     }
 
-    const gptRaw = await gptRes.text();
-    let gptData;
-    try { gptData = JSON.parse(gptRaw); }
-    catch(e) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка: ${gptRaw.slice(0, 200)}`, sources: [], from_kb: false }) };
+    const rawText = await res.text();
+    let data;
+    try { data = JSON.parse(rawText); }
+    catch(e) { return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка: ${rawText.slice(0, 200)}`, sources: [], from_kb: false }) }; }
+
+    if (data.error) {
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ ${data.error.message || JSON.stringify(data.error)}`, sources: [], from_kb: false }) };
     }
 
-    if (gptData.error) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Groq: ${gptData.error.message}`, sources: [], from_kb: false }) };
-    }
-
-    const answer = gptData.choices?.[0]?.message?.content || '⚠️ Ответ не получен.';
+    const answer = data.choices?.[0]?.message?.content || '⚠️ Ответ не получен.';
     return { statusCode: 200, headers, body: JSON.stringify({ answer, sources, from_kb: hasRelevantDocs }) };
 
   } catch (err) {
