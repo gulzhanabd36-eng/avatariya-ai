@@ -28,12 +28,10 @@ exports.handler = async (event) => {
     const expertParams = { ...params };
     delete expertParams.role;
 
-    // Inject Groq API key (not OpenAI - to save costs)
-    if (!expertParams.groq_api_key && process.env.GROQ_API_KEY) {
-      expertParams.groq_api_key = process.env.GROQ_API_KEY;
+    // Inject OpenAI key
+    if (!expertParams.openai_api_key && process.env.OPENAI_API_KEY) {
+      expertParams.openai_api_key = process.env.OPENAI_API_KEY;
     }
-    // Keep openai_api_key as fallback only if explicitly needed
-    // expertParams.openai_api_key is NOT injected automatically
 
     const NEEDS_SUPABASE = ['process_advisor', 'search_knowledge_base'];
     if (NEEDS_SUPABASE.includes(expert_name)) {
@@ -59,7 +57,7 @@ exports.handler = async (event) => {
 
     const rawText = await res.text();
     if (!rawText || rawText.trim() === '') {
-      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: `⚠️ Extella вернул пустой ответ. Убедись что Extella Desktop запущена.` }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ status: 'error', text: '⚠️ Extella вернул пустой ответ. Убедись что Extella Desktop запущена.' }) };
     }
 
     let data;
