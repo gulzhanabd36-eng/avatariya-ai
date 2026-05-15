@@ -57,12 +57,13 @@ exports.handler = async (event) => {
         return { ...c, score };
       }).sort((a, b) => b.score - a.score);
 
-      const top = scored[0]?.score >= 1 ? scored.slice(0, 5) : [];
+      // Top 3 chunks, max 1500 chars each — fits within Groq free tier limits
+      const top = scored[0]?.score >= 1 ? scored.slice(0, 3) : [];
       hasRelevantDocs = top.length > 0;
 
       if (top.length > 0) {
         contextText = top.map((c, i) => {
-          const content = (c.content || '').slice(0, 3000);
+          const content = (c.content || '').slice(0, 1500);
           return `[${i + 1}. ${c.source_file || c.category}]\n${content}`;
         }).join('\n\n───\n\n');
         sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
@@ -72,24 +73,13 @@ exports.handler = async (event) => {
     let systemPrompt, userContent;
 
     if (hasRelevantDocs) {
-      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов из базы знаний.
-Правила:
-- Отвечай на языке вопроса (русский или казахский)
-- Используй ТОЛЬКО информацию из документов ниже
-- Если есть изображения ![](url) — включай как есть
-- Отвечай чётко и структурированно`;
+      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов. Отвечай на языке вопроса. Отвечай чётко и структурированно.`;
       userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
     } else {
-      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы).
-Дай конкретный пошаговый совет как действовать.
-Правила:
-- Отвечай на языке вопроса
-- Давай чёткие шаги: 1, 2, 3...
-- В конце добавляй: "💡 Для точных регламентов Avatariya — уточни у менеджера смены."`;
+      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Дай конкретный пошаговый совет. Отвечай на языке вопроса. В конце добавляй: "💡 Для точных регламентов — уточни у менеджера смены."` ;
       userContent = `Ситуация: ${message}`;
     }
 
-    // Groq API call
     let gptRes;
     try {
       gptRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -104,45 +94,30 @@ exports.handler = async (event) => {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
           ],
-          max_tokens: 1500,
+          max_tokens: 1000,
           temperature: hasRelevantDocs ? 0.1 : 0.3
         })
       });
     } catch (fetchErr) {
       return {
-        statusCode: 200,
-        headers,
+        statusCode: 200, headers,
         body: JSON.stringify({ answer: `⚠️ Не удалось подключиться к Groq: ${fetchErr.message}`, sources: [], from_kb: false })
       };
     }
 
     const gptRaw = await gptRes.text();
     let gptData;
-    try {
-      gptData = JSON.parse(gptRaw);
-    } catch(e) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ answer: `⚠️ Ошибка Groq: ${gptRaw.slice(0, 200)}`, sources: [], from_kb: false })
-      };
+    try { gptData = JSON.parse(gptRaw); }
+    catch(e) {
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка: ${gptRaw.slice(0, 200)}`, sources: [], from_kb: false }) };
     }
 
     if (gptData.error) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ answer: `⚠️ Groq: ${gptData.error.message || JSON.stringify(gptData.error)}`, sources: [], from_kb: false })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Groq: ${gptData.error.message}`, sources: [], from_kb: false }) };
     }
 
     const answer = gptData.choices?.[0]?.message?.content || '⚠️ Ответ не получен.';
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ answer, sources, from_kb: hasRelevantDocs })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ answer, sources, from_kb: hasRelevantDocs }) };
 
   } catch (err) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: `Ошибка: ${err.message}` }) };
