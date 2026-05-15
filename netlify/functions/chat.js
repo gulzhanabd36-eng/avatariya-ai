@@ -17,7 +17,7 @@ exports.handler = async (event) => {
     const { message, role } = JSON.parse(event.body || '{}');
     if (!message || !role) return { statusCode: 400, headers, body: JSON.stringify({ error: 'message и role обязательны' }) };
 
-    // 1. Load knowledge base chunks for this role
+    // 1. Load knowledge base
     let chunks = [];
     try {
       const sbRes = await fetch(
@@ -29,7 +29,7 @@ exports.handler = async (event) => {
       console.error('Supabase error:', e.message);
     }
 
-    // 2. Keyword scoring — threshold 1, top 8 chunks
+    // 2. Keyword scoring
     const normalize = (str) => str.toLowerCase()
       .replace(/[^а-яёa-z0-9\s]/gi, ' ')
       .split(/\s+/)
@@ -57,11 +57,15 @@ exports.handler = async (event) => {
         return { ...c, score };
       }).sort((a, b) => b.score - a.score);
 
-      const top = scored[0]?.score >= 1 ? scored.slice(0, 8) : [];
+      // Top 5 chunks, max 4000 chars each to avoid token overflow
+      const top = scored[0]?.score >= 1 ? scored.slice(0, 5) : [];
       hasRelevantDocs = top.length > 0;
 
       if (top.length > 0) {
-        contextText = top.map((c, i) => `[${i + 1}. ${c.source_file || c.category}]\n${c.content}`).join('\n\n───\n\n');
+        contextText = top.map((c, i) => {
+          const content = (c.content || '').slice(0, 4000);
+          return `[${i + 1}. ${c.source_file || c.category}]\n${content}`;
+        }).join('\n\n───\n\n');
         sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
       }
     }
@@ -69,49 +73,68 @@ exports.handler = async (event) => {
     let systemPrompt, userContent;
 
     if (hasRelevantDocs) {
-      // Answer from knowledge base
       systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов из базы знаний.
-
 Правила:
 - Отвечай на языке вопроса (русский или казахский)
-- Используй ТОЛЬКО информацию из документов ниже — не додумывай
+- Используй ТОЛЬКО информацию из документов ниже
 - Если есть изображения ![](url) — включай как есть
-- Отвечай чётко и структурированно
-- Если документ частично отвечает — дай ответ по документу и укажи источник`;
-
+- Отвечай чётко и структурированно`;
       userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
-
     } else {
-      // No KB docs — give practical GPT advice
-      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Тебя спрашивают о рабочей ситуации.
-
-Дай конкретный пошаговый совет как действовать. Отвечай практично, без лишних слов.
-
+      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы).
+Дай конкретный пошаговый совет как действовать.
 Правила:
-- Отвечай на языке вопроса (русский или казахский)
+- Отвечай на языке вопроса
 - Давай чёткие шаги: 1, 2, 3...
-- Используй знания о работе в ресторанах, парках развлечений, сервисе
-- В конце всегда добавляй: "💡 Для точных регламентов Avatariya — уточни у менеджера смены."`;
-
+- В конце добавляй: "💡 Для точных регламентов Avatariya — уточни у менеджера смены."`;
       userContent = `Ситуация: ${message}`;
     }
 
-    const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent }
-        ],
-        max_tokens: 2000,
-        temperature: hasRelevantDocs ? 0.1 : 0.3
-      })
-    });
+    // GPT call with proper error handling
+    let gptRes;
+    try {
+      gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userContent }
+          ],
+          max_tokens: 1500,
+          temperature: hasRelevantDocs ? 0.1 : 0.3
+        })
+      });
+    } catch (fetchErr) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ answer: `⚠️ Не удалось подключиться к OpenAI: ${fetchErr.message}`, sources: [], from_kb: false })
+      };
+    }
 
-    const gptData = await gptRes.json();
-    const answer = gptData.choices?.[0]?.message?.content || 'Не удалось получить ответ.';
+    const gptRaw = await gptRes.text();
+    let gptData;
+    try {
+      gptData = JSON.parse(gptRaw);
+    } catch(e) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ answer: `⚠️ Ошибка OpenAI: ${gptRaw.slice(0, 200)}`, sources: [], from_kb: false })
+      };
+    }
+
+    if (gptData.error) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ answer: `⚠️ OpenAI: ${gptData.error.message || JSON.stringify(gptData.error)}`, sources: [], from_kb: false })
+      };
+    }
+
+    const answer = gptData.choices?.[0]?.message?.content || '⚠️ Ответ не получен.';
 
     return {
       statusCode: 200,
