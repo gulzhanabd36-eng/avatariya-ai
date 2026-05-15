@@ -17,7 +17,6 @@ exports.handler = async (event) => {
     const { message, role } = JSON.parse(event.body || '{}');
     if (!message || !role) return { statusCode: 400, headers, body: JSON.stringify({ error: 'message и role обязательны' }) };
 
-    // 1. Load knowledge base
     let chunks = [];
     try {
       const sbRes = await fetch(
@@ -27,7 +26,6 @@ exports.handler = async (event) => {
       if (sbRes.ok) chunks = await sbRes.json();
     } catch(e) {}
 
-    // 2. Keyword scoring
     const normalize = (str) => str.toLowerCase()
       .replace(/[^а-яёa-z0-9\s]/gi, ' ')
       .split(/\s+/)
@@ -78,7 +76,7 @@ exports.handler = async (event) => {
           'X-Title': 'Avatariya AI'
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3.3-70b-instruct:free',
+          model: 'qwen/qwen3-8b:free',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
