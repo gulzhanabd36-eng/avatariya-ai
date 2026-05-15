@@ -25,9 +25,7 @@ exports.handler = async (event) => {
         { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
       );
       if (sbRes.ok) chunks = await sbRes.json();
-    } catch(e) {
-      console.error('Supabase error:', e.message);
-    }
+    } catch(e) {}
 
     // 2. Keyword scoring
     const normalize = (str) => str.toLowerCase()
@@ -42,16 +40,11 @@ exports.handler = async (event) => {
 
     if (Array.isArray(chunks) && chunks.length > 0) {
       const scored = chunks.map(c => {
-        const haystack = normalize([
-          c.content || '',
-          Array.isArray(c.keywords) ? c.keywords.join(' ') : (c.keywords || ''),
-          c.category || '',
-          c.source_file || ''
-        ].join(' '));
-        const categoryHay = normalize((c.category || '') + ' ' + (c.source_file || ''));
+        const haystack = normalize([c.content||'', Array.isArray(c.keywords)?c.keywords.join(' '):(c.keywords||''), c.category||'', c.source_file||''].join(' '));
+        const catHay = normalize((c.category||'')+' '+(c.source_file||''));
         let score = 0;
         for (const w of queryWords) {
-          if (categoryHay.includes(w)) score += 3;
+          if (catHay.includes(w)) score += 3;
           else if (haystack.includes(w)) score += 1;
         }
         return { ...c, score };
@@ -59,27 +52,21 @@ exports.handler = async (event) => {
 
       const top = scored[0]?.score >= 1 ? scored.slice(0, 5) : [];
       hasRelevantDocs = top.length > 0;
-
       if (top.length > 0) {
-        contextText = top.map((c, i) => {
-          const content = (c.content || '').slice(0, 2000);
-          return `[${i + 1}. ${c.source_file || c.category}]\n${content}`;
-        }).join('\n\n───\n\n');
+        contextText = top.map((c, i) => `[${i+1}. ${c.source_file||c.category}]\n${(c.content||'').slice(0,2000)}`).join('\n\n───\n\n');
         sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
       }
     }
 
     let systemPrompt, userContent;
-
     if (hasRelevantDocs) {
-      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов из базы знаний.Отвечай на языке вопроса (русский или казахский). Отвечай чётко и структурированно. Если есть изображения ![](url) — включай как есть.`;
+      systemPrompt = `Ты — AI-ассистент рестопарка Avatariya (Алматы). Отвечай ТОЛЬКО на основе документов. Отвечай на языке вопроса (русский или казахский). Чётко и структурированно. Если есть изображения ![](url) — включай.`;
       userContent = `База знаний:\n\n${contextText}\n\n═══\n\nВопрос: ${message}`;
     } else {
-      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Дай конкретный пошаговый совет. Отвечай на языке вопроса. Давай чёткие шаги: 1, 2, 3... В конце добавляй: "💡 Для точных регламентов — уточни у менеджера смены."`;
+      systemPrompt = `Ты — опытный наставник сотрудников рестопарка Avatariya (Алматы). Дай конкретный пошаговый совет. Отвечай на языке вопроса. Шаги: 1, 2, 3... В конце: "💡 Для точных регламентов — уточни у менеджера смены."`;
       userContent = `Ситуация: ${message}`;
     }
 
-    // OpenRouter — DeepSeek V3 free
     let res;
     try {
       res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -88,10 +75,10 @@ exports.handler = async (event) => {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://avatariya.netlify.app',
-          'X-Title': 'Avatariya AI Assistant'
+          'X-Title': 'Avatariya AI'
         },
         body: JSON.stringify({
-          model: 'deepseek/deepseek-chat-v3-0324:free',
+          model: 'meta-llama/llama-3.3-70b-instruct:free',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
@@ -100,23 +87,23 @@ exports.handler = async (event) => {
           temperature: hasRelevantDocs ? 0.1 : 0.3
         })
       });
-    } catch (fetchErr) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка подключения: ${fetchErr.message}`, sources: [], from_kb: false }) };
+    } catch (e) {
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка: ${e.message}`, sources: [], from_kb: false }) };
     }
 
-    const rawText = await res.text();
+    const raw = await res.text();
     let data;
-    try { data = JSON.parse(rawText); }
-    catch(e) { return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ Ошибка: ${rawText.slice(0, 200)}`, sources: [], from_kb: false }) }; }
+    try { data = JSON.parse(raw); }
+    catch(e) { return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ ${raw.slice(0,200)}`, sources: [], from_kb: false }) }; }
 
     if (data.error) {
-      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ ${data.error.message || JSON.stringify(data.error)}`, sources: [], from_kb: false }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ answer: `⚠️ ${data.error.message||JSON.stringify(data.error)}`, sources: [], from_kb: false }) };
     }
 
     const answer = data.choices?.[0]?.message?.content || '⚠️ Ответ не получен.';
     return { statusCode: 200, headers, body: JSON.stringify({ answer, sources, from_kb: hasRelevantDocs }) };
 
   } catch (err) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: `Ошибка: ${err.message}` }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
