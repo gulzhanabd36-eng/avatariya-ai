@@ -11,7 +11,7 @@ exports.handler = async (event) => {
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_KEY = process.env.SUPABASE_KEY;
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
   try {
     const { message, role } = JSON.parse(event.body || '{}');
@@ -57,13 +57,12 @@ exports.handler = async (event) => {
         return { ...c, score };
       }).sort((a, b) => b.score - a.score);
 
-      // Top 5 chunks, max 4000 chars each to avoid token overflow
       const top = scored[0]?.score >= 1 ? scored.slice(0, 5) : [];
       hasRelevantDocs = top.length > 0;
 
       if (top.length > 0) {
         contextText = top.map((c, i) => {
-          const content = (c.content || '').slice(0, 4000);
+          const content = (c.content || '').slice(0, 3000);
           return `[${i + 1}. ${c.source_file || c.category}]\n${content}`;
         }).join('\n\n───\n\n');
         sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
@@ -90,14 +89,17 @@ exports.handler = async (event) => {
       userContent = `Ситуация: ${message}`;
     }
 
-    // GPT call with proper error handling
+    // Groq API call
     let gptRes;
     try {
-      gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      gptRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
@@ -110,7 +112,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ answer: `⚠️ Не удалось подключиться к OpenAI: ${fetchErr.message}`, sources: [], from_kb: false })
+        body: JSON.stringify({ answer: `⚠️ Не удалось подключиться к Groq: ${fetchErr.message}`, sources: [], from_kb: false })
       };
     }
 
@@ -122,7 +124,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ answer: `⚠️ Ошибка OpenAI: ${gptRaw.slice(0, 200)}`, sources: [], from_kb: false })
+        body: JSON.stringify({ answer: `⚠️ Ошибка Groq: ${gptRaw.slice(0, 200)}`, sources: [], from_kb: false })
       };
     }
 
@@ -130,7 +132,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ answer: `⚠️ OpenAI: ${gptData.error.message || JSON.stringify(gptData.error)}`, sources: [], from_kb: false })
+        body: JSON.stringify({ answer: `⚠️ Groq: ${gptData.error.message || JSON.stringify(gptData.error)}`, sources: [], from_kb: false })
       };
     }
 
@@ -143,7 +145,6 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
-    console.error('Chat error:', err.message);
     return { statusCode: 500, headers, body: JSON.stringify({ error: `Ошибка: ${err.message}` }) };
   }
 };
