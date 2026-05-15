@@ -48,10 +48,11 @@ exports.handler = async (event) => {
         return { ...c, score };
       }).sort((a, b) => b.score - a.score);
 
-      const top = scored[0]?.score >= 1 ? scored.slice(0, 5) : [];
+      // Take top 10 chunks, 4000 chars each — gpt-4o-mini supports 128k context
+      const top = scored[0]?.score >= 1 ? scored.slice(0, 10) : [];
       hasRelevantDocs = top.length > 0;
       if (top.length > 0) {
-        contextText = top.map((c, i) => `[${i+1}. ${c.source_file||c.category}]\n${(c.content||'').slice(0,2000)}`).join('\n\n───\n\n');
+        contextText = top.map((c, i) => `[${i+1}. ${c.source_file||c.category}]\n${(c.content||'').slice(0,4000)}`).join('\n\n───\n\n');
         sources = [...new Set(top.map(c => c.source_file).filter(Boolean))];
       }
     }
@@ -79,7 +80,7 @@ exports.handler = async (event) => {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent }
           ],
-          max_tokens: 1500,
+          max_tokens: 2000,
           temperature: hasRelevantDocs ? 0.1 : 0.3
         })
       });
